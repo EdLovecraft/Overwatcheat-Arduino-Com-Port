@@ -9,153 +9,194 @@ USBHub Hub(&Usb);
 #include <hidboot.h>
 HIDBoot<USB_HID_PROTOCOL_MOUSE> HidMouse(&Usb);
 
-// --- 状态变量，用于从Parser传递数据到loop ---
-// 使用 volatile 关键字，因为这些变量可能在 Usb.Task() 的中断上下文中被修改
-volatile int phys_dx = 0, phys_dy = 0, phys_dz = 0;
-volatile uint8_t phys_buttons = 0;
-uint8_t last_phys_buttons = 0;
+int lmb = 0;
+int rmb = 0;
+int mmb = 0;
+int scroll = 0;
+int xb1 = 0;
+int xb2 = 0;
 
-// --- 自动瞄准和点击的状态变量 ---
-volatile bool isAutoAiming = false;
-int aim_dx = 0, aim_dy = 0;
+int dx;
+int dy;
+int dz;
 
-bool isClicking = false;
-unsigned long clickStartTime = 0;
-unsigned long clickDuration;
-
-// ----- Mouse Report Parser (只更新状态，不执行操作) - 已修正 -----
+// ----- Mouse Report Parser
 class MouseRptParser : public MouseReportParser {
 protected:
-  void OnMouseMove(MOUSEINFO *mi) {
-    phys_dx += mi->dX;
-    phys_dy += mi->dY;
-  };
-
-  void OnMouseScroll(MOUSEINFO *mi) {
-    phys_dz += mi->dZ;
-  };
-  
-  // --- 修正部分：使用独立的、正确的按键回调函数 ---
-  void OnLeftButtonUp(MOUSEINFO *mi)    { phys_buttons &= ~MOUSE_LEFT; }
-  void OnLeftButtonDown(MOUSEINFO *mi)  { phys_buttons |= MOUSE_LEFT; }
-  
-  void OnRightButtonUp(MOUSEINFO *mi)   { phys_buttons &= ~MOUSE_RIGHT; }
-  void OnRightButtonDown(MOUSEINFO *mi) { phys_buttons |= MOUSE_RIGHT; }
-
-  void OnMiddleButtonUp(MOUSEINFO *mi)  { phys_buttons &= ~MOUSE_MIDDLE; }
-  void OnMiddleButtonDown(MOUSEINFO *mi){ phys_buttons |= MOUSE_MIDDLE; }
-  
-  // 注意：Mouse.h 中侧键通常是 MOUSE_XB2 和 MOUSE_XB1
-  void OnXButton1Up(MOUSEINFO *mi)      { phys_buttons &= ~MOUSE_XB1; }
-  void OnXButton1Down(MOUSEINFO *mi)    { phys_buttons |= MOUSE_XB1; }
-
-  void OnXButton2Up(MOUSEINFO *mi)      { phys_buttons &= ~MOUSE_XB2; }
-  void OnXButton2Down(MOUSEINFO *mi)    { phys_buttons |= MOUSE_XB2; }
+  void OnMouseMove(MOUSEINFO *mi);
+  void OnMouseScroll(MOUSEINFO *mi); 
+  void OnLeftButtonUp(MOUSEINFO *mi);
+  void OnLeftButtonDown(MOUSEINFO *mi);
+  void OnRightButtonUp(MOUSEINFO *mi);
+  void OnRightButtonDown(MOUSEINFO *mi);
+  void OnMiddleButtonUp(MOUSEINFO *mi);
+  void OnMiddleButtonDown(MOUSEINFO *mi);
+  void OnXButton1Up (MOUSEINFO *mi); 
+  void OnXButton1Down (MOUSEINFO *mi);
+  void OnXButton2Up (MOUSEINFO *mi); 
+  void OnXButton2Down (MOUSEINFO *mi);
 };
+
+void MouseRptParser::OnMouseMove(MOUSEINFO *mi) {
+  dx = mi->dX;
+  dy = mi->dY;
+};
+
+void MouseRptParser::OnMouseScroll(MOUSEINFO *mi) {
+  dz = mi->dZ;
+};
+
+void MouseRptParser::OnLeftButtonUp(MOUSEINFO *mi) {
+  lmb = 0;
+};
+
+void MouseRptParser::OnLeftButtonDown(MOUSEINFO *mi) {
+  lmb = 1;
+};
+
+void MouseRptParser::OnRightButtonUp(MOUSEINFO *mi) {
+  rmb = 0;
+};
+
+void MouseRptParser::OnRightButtonDown(MOUSEINFO *mi) {
+  rmb = 1;
+};
+
+void MouseRptParser::OnMiddleButtonUp(MOUSEINFO *mi) {
+  mmb = 0;
+};
+
+void MouseRptParser::OnMiddleButtonDown(MOUSEINFO *mi) {
+  mmb = 1;
+};
+
+void MouseRptParser::OnXButton1Up (MOUSEINFO *mi) {
+  xb1 = 0; 
+}; 
+ 
+ 
+void MouseRptParser::OnXButton1Down (MOUSEINFO *mi) { 
+  xb1 = 1; 
+};
+ 
+ 
+void MouseRptParser::OnXButton2Up (MOUSEINFO *mi) {
+  xb2 = 0; 
+}; 
+ 
+ 
+void MouseRptParser::OnXButton2Down (MOUSEINFO *mi) { 
+  xb2 = 1; 
+};
+
+// Global variables to hold the command and movement values
+String command = "";  // The command received from the serial buffer
+int deltaX = 0, deltaY = 0;  // Movement values for the X and Y axes
+
+// Click state management
+bool isClicking = false;  // Tracks whether a mouse click is currently happening
+unsigned long clickStartTime = 0;  // Marks the time when the click begins
+unsigned long clickDuration;  // Specifies how long the click will last in milliseconds
 
 MouseRptParser Prs;
 
 void setup() {
-    delay(2000);
+    delay(5000);
+    // Initialize serial communication at a baud rate of 115200
     Serial.begin(115200);
-    Serial.setTimeout(1);
+    Serial.setTimeout(1);  // Set a short timeout for serial reads
+    Mouse.begin();  // Initialize mouse control
     
-    Mouse.begin();
+    // Seed the random number generator for varying click durations
+    randomSeed(analogRead(0));  // Use an unconnected analog pin for better randomness
 
-    if (Usb.Init() == -1) {
-        Serial.println("OSC did not start.");
-        while (1);
-    }
-    Serial.println("USB Host Shield initialised");
-
+    Usb.Init();
     HidMouse.SetReportParser(0, &Prs);
-    randomSeed(analogRead(0));
 }
 
 void loop() {
-    // 1. 总是先调用 Usb.Task()
+    dx = 0;
+    dy = 0;
+    dz = 0;
+
     Usb.Task();
 
-    // 2. 处理串口指令，只更新目标值
-    if (Serial.available() > 0) {
-        String command = Serial.readStringUntil('\n');
-        command.trim();
+    // Clicking
+    if (lmb == 0) {
+      Mouse.release(MOUSE_LEFT);
+    } else if (lmb == 1) {
+      Mouse.press(MOUSE_LEFT);
+    }
 
+    if (rmb == 0) {
+      Mouse.release(MOUSE_RIGHT);
+    } else if (rmb == 1) {
+      Mouse.press(MOUSE_RIGHT);
+    }
+
+    if (mmb == 0) {
+      Mouse.release(MOUSE_MIDDLE);
+    } else if (mmb == 1) {
+      Mouse.press(MOUSE_MIDDLE);
+    }
+
+    if (xb1 == 0) {
+      Mouse.release(MOUSE_XB1);
+    } else if (xb1 == 1) {
+      Mouse.press(MOUSE_XB1);
+    }
+ 
+    if (xb2 == 0) {
+      Mouse.release(MOUSE_XB2);
+    } else if (xb2 == 1) {
+      Mouse.press(MOUSE_XB2);
+    }
+
+    Mouse.move(dx, dy, dz); // Moving the mouse without pcinput
+
+    // Check if there's any command waiting in the serial buffer
+    if (Serial.available() > 0) {
+        // Read the incoming command until a newline character
+        command = Serial.readStringUntil('\n');
+        command.trim();  // Clean up any leading or trailing spaces
+
+        // If the command starts with 'M', it's a mouse movement command
         if (command.startsWith("M")) {
-            int commaIndex = command.indexOf(',');
+            int commaIndex = command.indexOf(',');  // Find the position of the comma
+            // Make sure the command is formatted correctly
             if (commaIndex != -1) {
-                aim_dx = command.substring(1, commaIndex).toInt();
-                aim_dy = command.substring(commaIndex + 1).toInt();
-                if (aim_dx != 0 || aim_dy != 0) {
-                    isAutoAiming = true;
+                // Extract the movement values for X and Y axes
+                deltaX = command.substring(1, commaIndex).toInt();  // Get X-axis movement
+                deltaY = command.substring(commaIndex + 1).toInt();  // Get Y-axis movement
+
+                // Move the mouse incrementally to prevent sudden jumps
+                while (deltaX != 0 || deltaY != 0) {
+                    int moveX = constrain(deltaX, -128, 127);  // Limit X movement to avoid overflow
+                    int moveY = constrain(deltaY, -128, 127);  // Limit Y movement similarly
+                    Mouse.move(moveX, moveY);  // Perform the mouse movement
+                    deltaX -= moveX;  // Decrease remaining movement for X-axis
+                    deltaY -= moveY;  // Decrease remaining movement for Y-axis
                 }
             }
-        } else if (command.startsWith("C")) {
+        }
+        // If the command starts with 'C', it's a mouse click command
+        else if (command.startsWith("C")) {
+            // Start the click process if we're not already clicking
             if (!isClicking) {
-                // 对于串口触发的点击，我们直接操作，因为它不涉及USB Host输入
-                Mouse.press(MOUSE_LEFT);
-                clickStartTime = millis();
-                clickDuration = random(40, 80);
-                isClicking = true;
+                Mouse.press(MOUSE_LEFT);  // Press the left mouse button down
+                clickStartTime = millis();  // Record the current time as the start of the click
+                clickDuration = random(40, 80);  // Choose a random click duration between 40ms and 80ms
+                isClicking = true;  // Mark that we're in a clicking state
             }
         }
     }
 
-    // 3. 统一处理所有鼠标移动
-    int final_dx = 0;
-    int final_dy = 0;
-    int final_dz = phys_dz;
-
-    if (isAutoAiming) {
-        int moveX = constrain(aim_dx, -127, 127);
-        int moveY = constrain(aim_dy, -127, 127);
-        final_dx = moveX;
-        final_dy = moveY;
-        
-        aim_dx -= moveX;
-        aim_dy -= moveY;
-        
-        if (aim_dx == 0 && aim_dy == 0) {
-            isAutoAiming = false;
+    // If a click is ongoing, check if it's time to release the button
+    if (isClicking) {
+        // If the specified click duration has passed, release the button
+        if (millis() - clickStartTime >= clickDuration) {
+            Mouse.release(MOUSE_LEFT);  // Release the left mouse button
+            isClicking = false;  // Reset the clicking state
         }
-    } else {
-        final_dx = phys_dx;
-        final_dy = phys_dy;
     }
-
-    if (final_dx != 0 || final_dy != 0 || final_dz != 0) {
-        Mouse.move(final_dx, final_dy, final_dz);
-    }
-    phys_dx = 0;
-    phys_dy = 0;
-    phys_dz = 0;
-
-    // 4. 统一处理所有来自物理鼠标的按键
-    uint8_t current_buttons = phys_buttons; // 将 volatile 变量复制到局部变量中，确保在比较期间值不变
-    if (current_buttons != last_phys_buttons) {
-        // 检查哪些按键被新按下了
-        if ((current_buttons & MOUSE_LEFT) && !(last_phys_buttons & MOUSE_LEFT)) Mouse.press(MOUSE_LEFT);
-        if ((current_buttons & MOUSE_RIGHT) && !(last_phys_buttons & MOUSE_RIGHT)) Mouse.press(MOUSE_RIGHT);
-        if ((current_buttons & MOUSE_MIDDLE) && !(last_phys_buttons & MOUSE_MIDDLE)) Mouse.press(MOUSE_MIDDLE);
-        if ((current_buttons & MOUSE_XB2) && !(last_phys_buttons & MOUSE_XB2)) Mouse.press(MOUSE_XB2);
-        if ((current_buttons & MOUSE_XB1) && !(last_phys_buttons & MOUSE_XB1)) Mouse.press(MOUSE_XB1);
-
-        // 检查哪些按键被释放了
-        if (!(current_buttons & MOUSE_LEFT) && (last_phys_buttons & MOUSE_LEFT)) Mouse.release(MOUSE_LEFT);
-        if (!(current_buttons & MOUSE_RIGHT) && (last_phys_buttons & MOUSE_RIGHT)) Mouse.release(MOUSE_RIGHT);
-        if (!(current_buttons & MOUSE_MIDDLE) && (last_phys_buttons & MOUSE_MIDDLE)) Mouse.release(MOUSE_MIDDLE);
-        if (!(current_buttons & MOUSE_XB2) && (last_phys_buttons & MOUSE_XB2)) Mouse.release(MOUSE_XB2);
-        if (!(current_buttons & MOUSE_XB1) && (last_phys_buttons & MOUSE_XB1)) Mouse.release(MOUSE_XB1);
-        
-        last_phys_buttons = current_buttons;
-    }
-    
-    // 5. 处理串口触发的点击的释放逻辑
-    if (isClicking && millis() - clickStartTime >= clickDuration) {
-        Mouse.release(MOUSE_LEFT);
-        isClicking = false;
-    }
-
-    // 6. 在loop末尾加入微小延迟以增加稳定性
-    delay(1);
 }

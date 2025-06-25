@@ -31,6 +31,8 @@ dependencies {
 
     implementation(libs.jna)
     implementation(libs.jna.platform)
+
+    implementation("com.fazecast:jSerialComm:2.10.4")
 }
 
 application {

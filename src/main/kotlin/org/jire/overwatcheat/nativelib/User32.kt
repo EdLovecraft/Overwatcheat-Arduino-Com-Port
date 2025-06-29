@@ -27,4 +27,15 @@ object User32 : DirectNativeLib("user32") {
 
     external fun GetWindowTextA(hWnd: Pointer, lpString: ByteArray, nMaxCount: Int): Int
 
+    // Get system metrics for screen dimensions
+    external fun GetSystemMetrics(nIndex: Int): Int
+
+}
+
+// System metrics constants for screen dimensions
+object User32Constants {
+    const val SM_CXSCREEN = 0
+    const val SM_CYSCREEN = 1
+    const val SM_CXVIRTUALSCREEN = 78
+    const val SM_CYVIRTUALSCREEN = 79
 }

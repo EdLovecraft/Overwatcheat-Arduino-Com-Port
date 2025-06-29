@@ -42,11 +42,21 @@ object Main {
 
         Settings.read()
 
+        // Print DPI information for debugging
+        Screen.printDpiInfo()
+
         val captureWidth = Settings.boxWidth
         val captureHeight = Settings.boxHeight
 
-        val captureOffsetX = (Screen.WIDTH - captureWidth) / 2
-        val captureOffsetY = (Screen.HEIGHT - captureHeight) / 2
+        // Calculate capture offset directly in physical coordinates (center of screen)
+        val captureOffsetX = (Screen.PHYSICAL_WIDTH - captureWidth) / 2
+        val captureOffsetY = (Screen.PHYSICAL_HEIGHT - captureHeight) / 2
+
+        // Print capture information for debugging
+        println("Capture box: ${captureWidth}x${captureHeight}")
+        println("Physical screen: ${Screen.PHYSICAL_WIDTH}x${Screen.PHYSICAL_HEIGHT}")
+        println("Physical offset: (${captureOffsetX}, ${captureOffsetY})")
+        println("Capture area: (${captureOffsetX}, ${captureOffsetY}) to (${captureOffsetX + captureWidth}, ${captureOffsetY + captureHeight})")
 
         val captureCenterX = captureWidth / 2
         val captureCenterY = captureHeight / 2

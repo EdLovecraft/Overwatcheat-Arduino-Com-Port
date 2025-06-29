@@ -20,16 +20,62 @@ package org.jire.overwatcheat
 
 import java.awt.Dimension
 import java.awt.Toolkit
+import org.jire.overwatcheat.nativelib.User32
+import org.jire.overwatcheat.nativelib.User32Constants
 
 object Screen {
 
-    private val DIMENSION: Dimension = Toolkit.getDefaultToolkit().screenSize
+    // Logical screen dimensions (DPI-aware, what Java reports)
+    private val LOGICAL_DIMENSION: Dimension = Toolkit.getDefaultToolkit().screenSize
+    val LOGICAL_WIDTH = LOGICAL_DIMENSION.width
+    val LOGICAL_HEIGHT = LOGICAL_DIMENSION.height
 
-    val WIDTH = DIMENSION.width
-    val HEIGHT = DIMENSION.height
+    // Physical screen dimensions (actual pixels, what FFmpeg captures)
+    val PHYSICAL_WIDTH = User32.GetSystemMetrics(User32Constants.SM_CXSCREEN)
+    val PHYSICAL_HEIGHT = User32.GetSystemMetrics(User32Constants.SM_CYSCREEN)
+
+    // DPI scaling factor
+    val DPI_SCALE_X = PHYSICAL_WIDTH.toFloat() / LOGICAL_WIDTH
+    val DPI_SCALE_Y = PHYSICAL_HEIGHT.toFloat() / LOGICAL_HEIGHT
+
+    // For backward compatibility, use physical dimensions as default
+    val WIDTH = PHYSICAL_WIDTH
+    val HEIGHT = PHYSICAL_HEIGHT
 
     const val OVERLAY_OFFSET = 1
     val OVERLAY_WIDTH = WIDTH - OVERLAY_OFFSET
     val OVERLAY_HEIGHT = HEIGHT - OVERLAY_OFFSET
+
+    /**
+     * Convert logical coordinates to physical coordinates
+     */
+    fun logicalToPhysical(logicalX: Int, logicalY: Int): Pair<Int, Int> {
+        return Pair(
+            (logicalX * DPI_SCALE_X).toInt(),
+            (logicalY * DPI_SCALE_Y).toInt()
+        )
+    }
+
+    /**
+     * Convert physical coordinates to logical coordinates
+     */
+    fun physicalToLogical(physicalX: Int, physicalY: Int): Pair<Int, Int> {
+        return Pair(
+            (physicalX / DPI_SCALE_X).toInt(),
+            (physicalY / DPI_SCALE_Y).toInt()
+        )
+    }
+
+    /**
+     * Print DPI scaling information for debugging
+     */
+    fun printDpiInfo() {
+        println("=== DPI Scaling Information ===")
+        println("Logical dimensions: ${LOGICAL_WIDTH}x${LOGICAL_HEIGHT}")
+        println("Physical dimensions: ${PHYSICAL_WIDTH}x${PHYSICAL_HEIGHT}")
+        println("DPI Scale X: $DPI_SCALE_X")
+        println("DPI Scale Y: $DPI_SCALE_Y")
+        println("===============================")
+    }
 
 }
